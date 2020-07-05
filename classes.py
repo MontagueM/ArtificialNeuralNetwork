@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 class Unit:
     pass
 
@@ -35,8 +36,16 @@ class Layer:
 
     def pre_activation(self):
         prev_layer = self.instance.layers[self.layer_id - 1]
-        print(prev_layer.h_x, type(self), type(prev_layer))
-        self.a_x = self.b + np.matmul(self.W.T, prev_layer.h_x)
+        # print("W", self.W, type(self))
+        print(f'{type(prev_layer)} -> {type(self)} pre-activation')
+        print(f"Multiplying {self.W} and {prev_layer.h_x}")
+        if isinstance(prev_layer, InputLayer):
+            self.a_x = self.b + np.multiply(self.W, prev_layer.h_x)
+        elif isinstance(self, OutputLayer):
+            self.a_x = self.b + self.W.T.dot(prev_layer.h_x)
+        else:
+            self.a_x = self.b + np.matmul(self.W, prev_layer.h_x)
+        # print("a_x", self.a_x, '\n')
 
 
 # k=0
@@ -46,7 +55,10 @@ class InputLayer(Layer):
         self.belonging_units = np.array([InputUnit] * unit_count)
 
     def set_input_data(self, input_data):
-        self.h_x = input_data
+        self.h_x = np.array([input_data]*len(self.instance.layers[self.layer_id+1].belonging_units))
+        # self.h_x = input_data
+        print(f'input h_x {self.h_x}')
+
 
 # 1<=k<=L
 def g(a_x: np.array):
@@ -71,6 +83,7 @@ class HiddenLayer(Layer):
 
         # Hidden layer activation function g(a)
         self.h_x = g(self.a_x)
+        # print(f'h_x {self.h_x}')
 
     def hidden_below_grad(self):
         grad_loss_h_below = np.matmul(self.W.T, self.grad_loss_a)
@@ -83,6 +96,7 @@ class HiddenLayer(Layer):
         self.instance.layers[self.layer_id - 1].grad_loss_a = grad_loss_a_below
 
     def hidden_W_grad(self):
+        print(type(self), self.grad_loss_a, self.instance.layers[self.layer_id - 1].h_x.T)
         self.grad_loss_W = np.matmul(self.grad_loss_a, self.instance.layers[self.layer_id - 1].h_x.T)
 
     def hidden_b_grad(self):
@@ -105,6 +119,7 @@ class OutputLayer(Layer):
         # Output activation function o(a)
         o = np.array([np.exp(i)/a_x_sum for i in self.a_x]).T
         self.h_x = o  # also f_x
+        print(f'f_x output {self.h_x}')
 
     def output_preactivation_grad(self, y):
         """
@@ -113,10 +128,24 @@ class OutputLayer(Layer):
         :return grad_loss_a: the grad of the log likelihood with respect to a(x)
         """
         # Making the e vector
-        e = [0]*len(self.h_x)
+        e = [0]*(len(self.h_x) + 1)
+        print(e, y)
         e[y] = 1
 
         self.grad_loss_a = ([-e[i] + self.h_x[i] for i in range(len(self.h_x))])
+        print(type(self), self.grad_loss_a)
+
+        # We need these in here as hidden layers may be below
+        def hidden_below_grad(self):
+            grad_loss_h_below = np.matmul(self.W.T, self.grad_loss_a)
+            # Sending it down to the layer below for its use in grad calculations (back propagation)
+            self.instance.layers[self.layer_id - 1].grad_loss_h = grad_loss_h_below
+
+        def hidden_below_preactivation_grad(self):
+            # We're using sigmoid so need g' to be g(a)(1-g(a)) | using list comprehension as need to do element wise
+            grad_loss_a_below = self.instance.layers[self.layer_id - 1].grad_loss_h.dot(
+                [g(a)(1 - g(a)) for a in self.layer_below.a_x])
+            self.instance.layers[self.layer_id - 1].grad_loss_a = grad_loss_a_below
 
 
 class NNInstance:
@@ -145,21 +174,27 @@ class NNInstance:
     def get_initialisation_params(self):
         # theta of [Biases], [Weights] (biases init to 0, weights stochastically sampled)
         theta = [[0]*(len(self.layers) - 1), []]
-        for i in range(1, len(self.layers)):  # 1 as ignoring input layer for weights
-            b = np.sqrt(6) / np.sqrt(len(self.layers[i].belonging_units) + len(self.layers[i - 1].belonging_units))
-
-            W = []
-            for j in range(len(self.layers[i].belonging_units)):
-                # Taking H_k to be the number of neurons but really should be number of activations?
-                new_W = np.random.uniform(-b, b)
-                W.append(new_W)
-            theta[1].append(W)
+        for k in range(1, len(self.layers)):  # 1 as ignoring input layer for weights
+            b = np.sqrt(6) / np.sqrt(len(self.layers[k].belonging_units) + len(self.layers[k - 1].belonging_units))
+            W_i = []
+            # k-1 as we need to go backwards when calculating for weights
+            # going i,j in this order (i being row, j column)
+            for i in range(len(self.layers[k-1].belonging_units)):
+                W_j = []
+                for j in range(len(self.layers[k].belonging_units)):
+                    # Taking H_k to be the number of neurons but really should be number of activations?
+                    new_W = np.random.uniform(-b, b)
+                    W_j.append(new_W)
+                W_i.append(W_j)
+            if len(W_i) == 1:
+                W_i = W_i[0]
+            theta[1].append(W_i)
         print(theta)
         return theta
 
     def set_params(self, theta):
         for i in range(0, len(self.layers)-1):
-            self.layers[i].set_params(theta[0][i], theta[1][i])
+            self.layers[i+1].set_params(theta[0][i], theta[1][i])
 
     # Initialise hyperparameters
 
@@ -173,20 +208,21 @@ class NNInstance:
 
     def forward_propagate(self):
         for layer in self.layers[1:]:  # 1 as ignoring input layer
-            for j in range(len(layer.belonging_units)):
-                layer.pre_activation()
-                layer.activation()
+            layer.pre_activation()
+            layer.activation()
 
     # loss function; do we need to think about y?
     def loss_fn(self):
         return -np.log(self.output_layer.h_x)
 
-    def get_all_loss_SGD(self):
+    def get_all_loss_SGD(self, y):
         all_loss_SGD = [[], []]
         for layer in self.layers[::-1]:  # Reversing as back prop
             if isinstance(layer, HiddenLayer):
                 all_loss_SGD[0].append(layer.hidden_b_grad())
                 all_loss_SGD[1].append(layer.hidden_W_grad())
+            elif isinstance(layer, OutputLayer):
+                layer.output_preactivation_grad(y)
 
         return np.array([x[::-1] for x in all_loss_SGD])  # Reverse it back as we still need to go forward with b and W
 
@@ -207,7 +243,7 @@ class NNInstance:
                 self.forward_propagate()
                 # 2 * self.theta[1] is 2*W which is grad of omega for L2
                 # calling get all loss SGD requires a kept-state of a forward run for a set of h_x
-                delta = -self.get_all_loss_SGD() - self.lambd * 2*self.params[1]
+                delta = -self.get_all_loss_SGD(y_t) - self.lambd * 2*self.params[1]
                 self.params = self.params + self.alpha * delta
 
 
