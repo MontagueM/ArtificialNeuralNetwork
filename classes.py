@@ -55,6 +55,9 @@ class HiddenLayer(Layer):
     def __init__(self, instance, layer_id, unit_count=1):
         super().__init__(instance, layer_id)
         self.belonging_units = np.array([HiddenUnit] * unit_count)
+        self.layer_below = self.instance.layers[self.layer_id - 1]
+        self.grad_LL_a = None
+        self.grad_LL_h = None
 
     def activation(self):
         """
@@ -68,7 +71,20 @@ class HiddenLayer(Layer):
         # Hidden layer activation function g(a)
         self.h_x = g(self.a_x)
 
+    def hidden_below_grad(self):
+        grad_LL_h_below = None
+        # Sending it down to the layer below for its use in grad calculations (back propagation)
+        self.layer_below.grad_LL_h = grad_LL_h_below
 
+    def hidden_below_preactivation_grad(self):
+        grad_LL_a_below = None
+        self.layer_below.grad_LL_a = grad_LL_a_below
+
+    def hidden_W_grad(self):
+        grad_LL_W = np.matmul(self.grad_LL_a, self.layer_below.h_x.T)
+
+    def hidden_b_grad(self):
+        grad_LL_b = self.grad_LL_a
 
 # k=L+1
 class OutputLayer(Layer):
@@ -86,7 +102,7 @@ class OutputLayer(Layer):
         o = np.array([np.exp(i)/a_x_sum for i in self.a_x]).T
         self.h_x = o  # also f_x
 
-    def output_grad(self, y):
+    def output_preactivation_grad(self, y):
         """
         Computation of the output f(x) gradient before activation: -(e(y)-f(x)). y here is the actual outcome of the
         test condition.
@@ -118,12 +134,6 @@ class NNInstance:
         print(self.layers)
         theta = self.get_initialisation_params()
         self.set_init_params(theta)
-    # Loss function
-    # Gradient computation procedure
-
-    # Regulariser
-    def regulariser(self):
-        pass
 
     # Initialisation method
     def get_initialisation_params(self):
