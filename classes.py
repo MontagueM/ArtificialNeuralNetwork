@@ -34,9 +34,12 @@ class Layer:
         # print(f'{type(prev_layer)} -> {type(self)} pre-activation')
         # print(f"Multiplying {self.W} and {prev_layer.h_x}")
         if isinstance(prev_layer, InputLayer):
-            self.a_x = self.b + np.multiply(self.W, prev_layer.h_x)
+            self.a_x = self.b + np.matmul(prev_layer.h_x, self.W)
+            # self.a_x = self.b + np.multiply(self.W, prev_layer.h_x)
         elif isinstance(self, OutputLayer):
-            self.a_x = self.b + self.W.T.dot(prev_layer.h_x)
+            print("pre", self.W, prev_layer.h_x)
+            self.a_x = self.b + np.matmul(prev_layer.h_x, self.W)
+            # self.a_x = self.b + self.W.T.dot(prev_layer.h_x)
             # print("THIS1", self.W, prev_layer.h_x)
             # print("THIS2", self.W.T.dot(prev_layer.h_x))
         else:
@@ -60,11 +63,17 @@ class Layer:
         self.instance.layers[self.layer_id - 1].grad_loss_a = grad_loss_a_below
 
     def W_grad(self):
-        # print("W", self.grad_loss_a, np.array(self.instance.layers[self.layer_id - 1].h_x))
+        print("W", self.grad_loss_a, np.array(self.instance.layers[self.layer_id - 1].h_x))
         if len(self.grad_loss_a) == 1 or len(self.instance.layers[self.layer_id - 1].h_x.T) == 1:
             grad_loss_W = np.multiply(self.instance.layers[self.layer_id - 1].h_x.T, self.grad_loss_a)
         else:
-            grad_loss_W = np.outer(self.grad_loss_a, self.instance.layers[self.layer_id - 1].h_x)  # .outer replaces .T
+            grad_loss_W = np.outer(self.instance.layers[self.layer_id - 1].h_x, self.grad_loss_a)  # .outer replaces .T
+
+        def est():
+            approx = [[(self.instance.loss_fn(x + 1e-6) - self.instance.loss_fn(x - 1e-6)) / 2e-6 for x in k] for k in self.W]
+            return approx
+        # print(f'Real grad loss W {grad_loss_W}, est {est()}')
+
         return grad_loss_W
 
     def b_grad(self):
@@ -81,8 +90,8 @@ class InputLayer(Layer):
 
     def set_input_data(self, input_data):
         # self.h_x = np.array([input_data]*len(self.instance.layers[self.layer_id+1].belonging_units))
-        self.h_x = np.array([input_data])
-        # print(f'input h_x {self.h_x}')
+        self.h_x = np.array(input_data)
+        print(f'input h_x {self.h_x}')
 
 
 # 1<=k<=L
@@ -121,9 +130,12 @@ class OutputLayer(Layer):
         Output layers have different activation functions.
         :return:
         """
+        # print("a_x", self.a_x)
         a_x_sum = sum(self.a_x)
-        # Output activation function o(a)
-        o = np.array([np.exp(i)/a_x_sum for i in self.a_x]).T
+        # Output activation function o(a), softmax
+        # o = np.array([np.exp(i)/a_x_sum for i in self.a_x]).T
+        # Sigmoid activation
+        o = np.array([1/(1+np.exp(-i)) for i in self.a_x]).T
         self.h_x = o  # also f_x
         print(f'f_x output {self.h_x}')
 
@@ -134,11 +146,19 @@ class OutputLayer(Layer):
         :return grad_loss_a: the grad of the log likelihood with respect to a(x)
         """
         # Making the e vector
-        e = [0]*(len(self.h_x) + 1)
-        e[y] = 1
-
+        e = [0]*(len(self.h_x))  # + 1)
+        if len(e) == 1:
+            if y == 1:
+                e = [1]
+        else:
+            e[y] = 1
         self.grad_loss_a = ([-e[i] + self.h_x[i] for i in range(len(self.h_x))])
 
+        def est():
+            approx = [(self.instance.loss_fn(x + 1e-6) - self.instance.loss_fn(x - 1e-6)) / 2e-6 for x in self.a_x]
+            return approx
+        # print(f'Real grad loss a {self.grad_loss_a}, est {est()}')
+        pass
 
 class NNInstance:
     """
@@ -152,9 +172,9 @@ class NNInstance:
             else:
                 yield something
         # Initialising units and layers
-        self.input_layer = InputLayer(self, 0, unit_count=1)
+        self.input_layer = InputLayer(self, 0, unit_count=2)
         hidden_layers = [HiddenLayer(self, 1, unit_count=3), HiddenLayer(self, 2, unit_count=3)]
-        self.output_layer = OutputLayer(self, 3, unit_count=1)
+        self.output_layer = OutputLayer(self, 3, unit_count=2)
         self.layers = list(flatten([self.input_layer, hidden_layers, self.output_layer]))
         print(self.layers)
         self.data = data
@@ -203,12 +223,13 @@ class NNInstance:
         for layer in self.layers[1:]:  # 1 as ignoring input layer
             layer.pre_activation()
             layer.activation()
-        print(self.layers[-1], self.layers[-1].h_x)
+        # print(self.layers[-1], self.layers[-1].h_x)
         return self.layers[-1].h_x  # f_x result
 
     # loss function; do we need to think about y?
-    def loss_fn(self):
-        return -np.log(self.output_layer.h_x)
+    def loss_fn(self, x):
+        print(f'loss_fn {x}, {-np.log(x)}')
+        return -np.log(x)
 
     def get_all_loss_SGD(self, y):
         all_loss_SGD = []
@@ -253,10 +274,10 @@ class NNInstance:
                 # print(np.multiply(self.lambd * 2, self.params))
                 loss_grad = self.get_all_loss_SGD(y_t)
                 regulariser_grad = np.multiply(self.lambd * 2, np.array(self.params))
-                delta = -loss_grad - regulariser_grad
+                delta = -loss_grad # - regulariser_grad  # TODO remove this # as debug mode
                 # print(f'old params {self.params}')
                 self.params = self.params + self.alpha * delta
-                self.params[-1] = self.params[-1][0].reshape(-1, 1)  # temp fix for weird duplication issue, fix later
+                # self.params[-1] = self.params[-1][0].reshape(-1, 1)  # temp fix for weird duplication issue, fix later
                 # print(f'new params {self.params}')
                 print(f"WE DID IT {i}\n")
 
@@ -264,7 +285,9 @@ class NNInstance:
             test_accuracies.append(test_accuracy)
 
     def test_set(self):
+        print('Testing')
         input_test = np.linspace(0, 1, 1000)
+        input_test = [(x, x) for x in input_test]
         output_test = [0] * 500 + [1] * 500
         data = [(input_test[i], output_test[i]) for i in range(len(input_data))]
         np.random.shuffle(data)
@@ -272,18 +295,20 @@ class NNInstance:
         for x_t, y_t in actual_test_data:
             self.input_layer.set_input_data(x_t)
             f_x = self.forward_propagate()
-            print(f'{f_x} vs {y_t}')
+            print(f'{f_x} vs {y_t} with input {x_t}')
 
 
 if __name__ == "__main__":
     test_accuracies = []
     # Some dummy data that links to 0 if <0.5 and 1 if >0.5
     input_data = np.linspace(0, 1, 1000)
+    input_data = [(x, x) for x in input_data]
+    print(input_data)
     output_data = [0]*500 + [1]*500
     data = [(input_data[i], output_data[i]) for i in range(len(input_data))]
     np.random.shuffle(data)
     actual_data = data[:50]
-    plt.scatter([x[0] for x in actual_data], [x[1] for x in actual_data])
+    plt.scatter([x[0] for x, y in actual_data], [x[1] for x, y in actual_data])
     plt.show()
     inst = NNInstance(actual_data)
     inst.iterate_SGD()
