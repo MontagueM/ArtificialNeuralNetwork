@@ -125,7 +125,7 @@ class OutputLayer(Layer):
         # Output activation function o(a)
         o = np.array([np.exp(i)/a_x_sum for i in self.a_x]).T
         self.h_x = o  # also f_x
-        # print(f'f_x output {self.h_x}')
+        print(f'f_x output {self.h_x}')
 
     def output_preactivation_grad(self, y):
         """
@@ -203,6 +203,8 @@ class NNInstance:
         for layer in self.layers[1:]:  # 1 as ignoring input layer
             layer.pre_activation()
             layer.activation()
+        print(self.layers[-1], self.layers[-1].h_x)
+        return self.layers[-1].h_x  # f_x result
 
     # loss function; do we need to think about y?
     def loss_fn(self):
@@ -258,8 +260,23 @@ class NNInstance:
                 # print(f'new params {self.params}')
                 print(f"WE DID IT {i}\n")
 
+            test_accuracy = self.test_set()
+            test_accuracies.append(test_accuracy)
+
+    def test_set(self):
+        input_test = np.linspace(0, 1, 1000)
+        output_test = [0] * 500 + [1] * 500
+        data = [(input_test[i], output_test[i]) for i in range(len(input_data))]
+        np.random.shuffle(data)
+        actual_test_data = data[:50]
+        for x_t, y_t in actual_test_data:
+            self.input_layer.set_input_data(x_t)
+            f_x = self.forward_propagate()
+            print(f'{f_x} vs {y_t}')
+
 
 if __name__ == "__main__":
+    test_accuracies = []
     # Some dummy data that links to 0 if <0.5 and 1 if >0.5
     input_data = np.linspace(0, 1, 1000)
     output_data = [0]*500 + [1]*500
@@ -270,3 +287,4 @@ if __name__ == "__main__":
     plt.show()
     inst = NNInstance(actual_data)
     inst.iterate_SGD()
+    print(test_accuracies)
