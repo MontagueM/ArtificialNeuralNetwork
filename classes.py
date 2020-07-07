@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import itertools
 
 
 class Layer:
@@ -221,67 +222,83 @@ class NNInstance:
         ret = np.array(swapped).flatten()
         return ret  # Reverse it back as we still need to go forward with b and W
 
-    def iterate_SGD(self):
-        """
-        Iterate N times (epoch)
-            For each training example x_t, y_t
-                delta = -grad(loss_func(f(x_t; theta), y_t)) - lambda*grad(regulariser(theta))
-                theta = theta + alpha*delta
-        """
-        N = 1e3
+    def validate(self):
         self.alpha = 0.5
         self.lambd = 1
-        for i in range(int(N)):
-            for x_t, y_t in self.training_data:
+        self.N = 1e2  # max out at 100 while no reg
+
+        # Grid search
+        grid_params = {'alpha': [1, 0.1, 0.01, 0.001, 0.0001, 0], 'lambda': [10, 1, 0.1, 0.01, 0.001, 0]}
+        combinations = list(itertools.product(*grid_params.values()))
+        error_results = []
+        for c in combinations:
+            self.alpha = c[0]
+            self.lambd = c[1]
+            stopped_gen_error = self.train(self.validation_data)
+            error_results.append(stopped_gen_error)
+        [print(f'{combinations[i]}: {error_results[i]}') for i in range(len(combinations))]
+        print('')
+
+    def train(self, data_set):
+        gen_errors = []
+        for i in range(int(self.N)):
+            loss_array = []
+            print(i)
+            for x_t, y_t in data_set:
                 self.input_layer.set_input_data(x_t)
                 self.set_params(self.params)
                 f_x = self.forward_propagate()
                 # calling get all loss SGD requires a kept-state of a forward run for a set of h_x
                 loss_grad = self.get_all_loss_SGD(y_t)
-                regulariser_grad = np.multiply(self.lambd * 2, np.array([[0, self.params[i]] for i in range(0, len(self.params), 2)]).flatten())
-                delta = -loss_grad #- regulariser_grad  # TODO remove this # as debug mode
+                regulariser_grad = np.multiply(self.lambd * 2,
+                                               np.array([[0, self.params[i]] for i in range(0, len(self.params), 2)]).flatten())
+                delta = -loss_grad  # - regulariser_grad  # TODO remove this # as debug mode
                 self.params = self.params + self.alpha * delta
-            print(f"{i}\n")
 
-            test_accuracy = self.test_set(self.test_data)
-            test_accuracies.append(test_accuracy)
+                loss_array.append(self.loss_fn(f_x[y_t]))
 
-            # Early stopping                      # I don't think this actually works without regularisation
-            if i > 10:
+            # Early stopping
+            gen_errors.append(self.get_generalisation_error(loss_array))
+            print(gen_errors[-1])
+            if i > 5:
                 counter = 0
                 for j in range(5):
                     if gen_errors[i-j] - gen_errors[i-5] >= 0:
                         counter += 1
                 if counter == 5:  # If the past have 5 have been increasing in error
                     print(f'Limiting epoch to {i-4} with error {gen_errors[i-5]}')
-                    plt.plot([int(x) for x in np.arange(1, len(gen_errors)+1)], gen_errors)
-                    plt.xlabel("Epoch")
-                    plt.ylabel("Error")
-                    plt.show()
-                    pass
+                    # plt.plot([int(x) for x in np.arange(1, len(gen_errors)+1)], gen_errors, label=f'alpha {self.alpha} lambda {self.lambd}')
+                    # plt.xlabel("Epoch")
+                    # plt.ylabel("Error")
+                    # plt.legend()
+                    # plt.show()
+                    return gen_errors[i-5]
+
 
     def fit(self):
-        self.iterate_SGD()
+        self.validate()
+        self.train(self.training_data)
 
     def test_set(self, test_data):
-        test_results = []
+        # test_results = []
         loss_test_array = []
         for x_t, y_t in test_data:
             self.input_layer.set_input_data(x_t)
             f_x = self.forward_propagate()
             loss_test_array.append(self.loss_fn(f_x[y_t]))
-            if f_x[y_t] > 0.5:
-                test_results.append(True)
-            else:
-                test_results.append(False)
-        print(f'Gen error: {self.get_generalisation_error(loss_test_array)}')
-        gen_errors.append(self.get_generalisation_error(loss_test_array))
-        return test_results
+            # if f_x[y_t] > 0.5:
+            #     test_results.append(True)
+            # else:
+            #     test_results.append(False)
+        # print(f'Gen error: {self.get_generalisation_error(loss_test_array)}')
+        test_gen_errors.append(self.get_generalisation_error(loss_test_array))
+        # return test_results
+        return None
 
 
 if __name__ == "__main__":
     test_accuracies = []
-    gen_errors = []
+    test_gen_errors = []
     # Some dummy data that links to 0 if <0.5 and 1 if >0.5
 
     data = []
@@ -302,9 +319,12 @@ if __name__ == "__main__":
     inst = NNInstance(training_data, validation_data, test_data)
     inst.fit()
 
+    # test_accuracy = self.test_set(self.test_data)
+    # # test_accuracies.append(test_accuracy)
+
     [print(f'{round(x.count(True)*100/len(x), 1)}% | {x.count(True)}/{len(x)} Correct') for x in test_accuracies]
-    print(f'Gen error: {gen_errors}')
-    plt.plot(gen_errors)
+    print(f'Test gen error: {test_gen_errors}')
+    plt.plot(test_gen_errors)
     plt.xlabel("Epoch")
-    plt.ylabel("Error")
+    plt.ylabel("Test loss error")
     plt.show()
