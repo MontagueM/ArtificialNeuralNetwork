@@ -138,7 +138,7 @@ class NNInstance:
             else:
                 yield something
         # Initialising units and layers
-        self.input_layer = InputLayer(self, 0, unit_count=2)
+        self.input_layer = InputLayer(self, 0, unit_count=4)
         hidden_layers = [HiddenLayer(self, 1, unit_count=3), HiddenLayer(self, 2, unit_count=3)]
         self.output_layer = OutputLayer(self, 3, unit_count=2)
         self.layers = list(flatten([self.input_layer, hidden_layers, self.output_layer]))
@@ -228,23 +228,40 @@ class NNInstance:
                 delta = -grad(loss_func(f(x_t; theta), y_t)) - lambda*grad(regulariser(theta))
                 theta = theta + alpha*delta
         """
-        N = 1e1
+        N = 1e3
         self.alpha = 0.5
         self.lambd = 1
         for i in range(int(N)):
             for x_t, y_t in self.training_data:
                 self.input_layer.set_input_data(x_t)
                 self.set_params(self.params)
-                self.forward_propagate()
+                f_x = self.forward_propagate()
                 # calling get all loss SGD requires a kept-state of a forward run for a set of h_x
                 loss_grad = self.get_all_loss_SGD(y_t)
                 regulariser_grad = np.multiply(self.lambd * 2, np.array([[0, self.params[i]] for i in range(0, len(self.params), 2)]).flatten())
                 delta = -loss_grad #- regulariser_grad  # TODO remove this # as debug mode
                 self.params = self.params + self.alpha * delta
-                print(f"WE DID IT {i}\n")
+            print(f"{i}\n")
 
             test_accuracy = self.test_set(self.test_data)
             test_accuracies.append(test_accuracy)
+
+            # Early stopping                      # I don't think this actually works without regularisation
+            if i > 10:
+                counter = 0
+                for j in range(5):
+                    if gen_errors[i-j] - gen_errors[i-5] >= 0:
+                        counter += 1
+                if counter == 5:  # If the past have 5 have been increasing in error
+                    print(f'Limiting epoch to {i-4} with error {gen_errors[i-5]}')
+                    plt.plot([int(x) for x in np.arange(1, len(gen_errors)+1)], gen_errors)
+                    plt.xlabel("Epoch")
+                    plt.ylabel("Error")
+                    plt.show()
+                    pass
+
+    def fit(self):
+        self.iterate_SGD()
 
     def test_set(self, test_data):
         test_results = []
@@ -266,24 +283,28 @@ if __name__ == "__main__":
     test_accuracies = []
     gen_errors = []
     # Some dummy data that links to 0 if <0.5 and 1 if >0.5
-    data = []
-    for i in range(1000):
-        rand = np.random.randint(0, 2)
-        if rand == 0:
-            inp = [(np.random.random(1)[0], np.random.random(1)[0]*0.5), 0]
-        else:
-            inp = [(1-(np.random.random(1)[0]), 1-(np.random.random(1)[0]*0.5)), 1]
-        data.append(inp)
 
-    training_data = data[:700]
-    validation_data = data[700:850]
-    test_data = data[850:]
+    data = []
+    with open('data_banknote_authentication.txt', 'r') as f:
+        for line in f.readlines():
+            split = line.split(',')
+            data.append(([float(x) for x in split[:-1]], int(split[-1])))
 
     plt.plot([x[0] for x, y in data if y == 0], [x[1] for x, y in data if y == 0], 'o')
     plt.plot([x[0] for x, y in data if y == 1], [x[1] for x, y in data if y == 1], 'x')
     plt.show()
+
+    np.random.shuffle(data)
+    training_data = data[:int(len(data)*0.7)]
+    validation_data = data[int(len(data)*0.7):int(len(data)*0.85)]
+    test_data = data[int(len(data)*0.85):]
+
     inst = NNInstance(training_data, validation_data, test_data)
-    inst.iterate_SGD()
+    inst.fit()
 
     [print(f'{round(x.count(True)*100/len(x), 1)}% | {x.count(True)}/{len(x)} Correct') for x in test_accuracies]
     print(f'Gen error: {gen_errors}')
+    plt.plot(gen_errors)
+    plt.xlabel("Epoch")
+    plt.ylabel("Error")
+    plt.show()
