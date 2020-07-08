@@ -163,12 +163,13 @@ class NNInstance:
                 for j in range(self.layers[k].unit_count):
                     # Taking H_k to be the number of neurons but really should be number of activations?
                     new_W = np.random.uniform(-b, b)
-                    W_j.append(new_W)
-                W_i.append(W_j)
+                    W_j.append(np.array(new_W))
+                W_i.append(np.array(W_j))
             if len(W_i) == 1:
                 W_i = W_i[0]
             theta.append(np.array([0] * self.layers[k].unit_count))
             theta.append(np.array(W_i))
+        theta = np.array(theta)
         print(theta)
         return theta
 
@@ -238,8 +239,8 @@ class NNInstance:
             stopped_gen_error = self.train(self.validation_data)
             error_results.append(stopped_gen_error)
         [print(f'{combinations[i]}: {error_results[i]}') for i in range(len(combinations))]
-        combinations, error_results = zip(*sorted(zip(combinations, error_results)))
-        print(f'Minimum is {combinations[-1]} with error {error_results[-1]}')
+        error_results, combinations = zip(*sorted(zip(error_results, combinations)))
+        print(f'Minimum is {combinations[0]} with error {error_results[0]}')
         print('')
 
     def train(self, data_set):
@@ -253,8 +254,9 @@ class NNInstance:
                 # calling get all loss SGD requires a kept-state of a forward run for a set of h_x
                 loss_grad = self.get_all_loss_SGD(y_t)
                 regulariser_grad = np.multiply(self.lambd * 2,
-                                               np.array([[0, self.params[i]] for i in range(0, len(self.params), 2)]).flatten())
-                delta = -loss_grad  # - regulariser_grad  # TODO remove this # as debug mode
+                                               np.array([[0, self.params[i+1]] for i in range(0, len(self.params), 2)]).flatten())
+
+                delta = -loss_grad #- regulariser_grad  # TODO remove this # as debug mode
                 self.params = self.params + self.alpha * delta
 
             # Validation-based early stopping
@@ -272,7 +274,9 @@ class NNInstance:
 
         if len(self.validation_errors) < 2:
             return False
-        # print(f"Validation error: {validation_error}, Last one {self.validation_errors[-2]}")
+        print(f"Validation error: {validation_error}, Last one {self.validation_errors[-2]}")
+        if np.isnan(validation_error):
+            return True
         if validation_error > self.validation_errors[-2]:
             return True
         else:
