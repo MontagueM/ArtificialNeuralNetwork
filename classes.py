@@ -147,6 +147,7 @@ class NNInstance:
         self.validation_data = validation_data
         self.test_data = test_data
         self.params = self.get_initialisation_params()
+        self.original_params = self.params
         # Run forward once to get stuff we need for back prop
 
     # Initialisation method
@@ -229,11 +230,13 @@ class NNInstance:
         self.N = 1e2  # max out at 100 while no reg
 
         # Grid search
-        grid_params = {'alpha': [1, 0.1, 0.01, 0.001, 0.0001, 0], 'lambda': [10, 1, 0.1, 0.01, 0.001, 0]}
+        grid_params = {'alpha': [1, 0.1, 0.01, 0.001, 0.0001], 'lambda': [1, 0.1, 0.01, 0.001, 0.0001, 0]}
         combinations = list(itertools.product(*grid_params.values()))
         error_results = []
+
         for c in combinations:
             print(f'{combinations.index(c)+1}/{len(combinations)}')
+            self.params = self.original_params
             self.alpha = c[0]
             self.lambd = c[1]
             stopped_gen_error = self.train(self.validation_data)
@@ -254,12 +257,15 @@ class NNInstance:
                 # calling get all loss SGD requires a kept-state of a forward run for a set of h_x
                 loss_grad = self.get_all_loss_SGD(y_t)
                 regulariser_grad = np.multiply(self.lambd * 2,
-                                               np.array([[0, self.params[i+1]] for i in range(0, len(self.params), 2)]).flatten())
+                                               np.array([[0, self.params[i+1]] for i in range(0,
+                                                                                              len(self.params),
+                                                                                              2)]).flatten())
 
-                delta = -loss_grad #- regulariser_grad  # TODO remove this # as debug mode
+                delta = -loss_grad - regulariser_grad  # TODO remove this # as debug mode
                 self.params = self.params + self.alpha * delta
 
             # Validation-based early stopping
+            # TODO this is not correct. We need to make sure we keep the weights from [-2] not the last one.
             if i % 5 == 0:
                 b_should_stop = self.check_early_stopping()
                 if b_should_stop:
