@@ -232,22 +232,24 @@ class NNInstance:
         combinations = list(itertools.product(*grid_params.values()))
         error_results = []
         for c in combinations:
+            print(f'{combinations.index(c)+1}/{len(combinations)}')
             self.alpha = c[0]
             self.lambd = c[1]
             stopped_gen_error = self.train(self.validation_data)
             error_results.append(stopped_gen_error)
         [print(f'{combinations[i]}: {error_results[i]}') for i in range(len(combinations))]
+        combinations, error_results = zip(*sorted(zip(combinations, error_results)))
+        print(f'Minimum is {combinations[-1]} with error {error_results[-1]}')
         print('')
 
     def train(self, data_set):
-        gen_errors = []
+        self.validation_errors = []
         for i in range(int(self.N)):
-            loss_array = []
-            print(i)
+            # print(i)
             for x_t, y_t in data_set:
                 self.input_layer.set_input_data(x_t)
                 self.set_params(self.params)
-                f_x = self.forward_propagate()
+                self.forward_propagate()
                 # calling get all loss SGD requires a kept-state of a forward run for a set of h_x
                 loss_grad = self.get_all_loss_SGD(y_t)
                 regulariser_grad = np.multiply(self.lambd * 2,
@@ -255,32 +257,32 @@ class NNInstance:
                 delta = -loss_grad  # - regulariser_grad  # TODO remove this # as debug mode
                 self.params = self.params + self.alpha * delta
 
-                loss_array.append(self.loss_fn(f_x[y_t]))
+            # Validation-based early stopping
+            if i % 5 == 0:
+                b_should_stop = self.check_early_stopping()
+                if b_should_stop:
+                    return self.validation_errors[-2]
 
-            # Early stopping
-            gen_errors.append(self.get_generalisation_error(loss_array))
-            print(gen_errors[-1])
-            if i > 5:
-                counter = 0
-                for j in range(5):
-                    if gen_errors[i-j] - gen_errors[i-5] >= 0:
-                        counter += 1
-                if counter == 5:  # If the past have 5 have been increasing in error
-                    print(f'Limiting epoch to {i-4} with error {gen_errors[i-5]}')
-                    # plt.plot([int(x) for x in np.arange(1, len(gen_errors)+1)], gen_errors, label=f'alpha {self.alpha} lambda {self.lambd}')
-                    # plt.xlabel("Epoch")
-                    # plt.ylabel("Error")
-                    # plt.legend()
-                    # plt.show()
-                    return gen_errors[i-5]
+    def check_early_stopping(self):
+        # Early stopping
+        x_t, y_t = self.validation_data[len(self.validation_errors)]
+        f_x = self.forward_propagate()
+        validation_error = self.loss_fn(f_x[y_t])
+        self.validation_errors.append(validation_error)
 
+        if len(self.validation_errors) < 2:
+            return False
+        # print(f"Validation error: {validation_error}, Last one {self.validation_errors[-2]}")
+        if validation_error > self.validation_errors[-2]:
+            return True
+        else:
+            return False
 
     def fit(self):
         self.validate()
         self.train(self.training_data)
 
     def test_set(self, test_data):
-        # test_results = []
         loss_test_array = []
         for x_t, y_t in test_data:
             self.input_layer.set_input_data(x_t)
